@@ -1,143 +1,189 @@
-# Minha pequena linguagem
+# MPL, Minha Pequena Linguagem
 
-Trabalho semestral de **Compiladores** — Ciência da Computação, UNISAGRADO.
-Prof. Luiz Ricardo Mantovani da Silva · 2026-2
+Compilador da MPL escrito para o trabalho semestral de Compiladores.
 
-Cada grupo escreve um **compilador completo** para a MPL, uma linguagem
-pequena de palavras-chave em português. O compilador de vocês vai ler um
-programa em `.mpl`, atravessar as quatro fases da disciplina e produzir um
-arquivo que **roda de verdade** numa máquina virtual que vocês também vão
-escrever.
+UNISAGRADO, Ciência da Computação, 2026-2. Prof. Luiz Ricardo Mantovani da Silva.
 
-No fim do semestre vocês executam um programa escrito por vocês, numa
-linguagem compilada por vocês.
+Esqueleto de origem: [compiladores-lab](https://github.com/LuizRMSilva1973/compiladores-lab).
+
+## Grupo
+
+| Nome | RA | E-mail |
+|---|---|---|
+| Marcos Coleone | *preencher* | *preencher* |
+| *preencher* | *preencher* | *preencher* |
+| *preencher* | *preencher* | *preencher* |
+
+Turma B (segunda-feira).
+
+## Como rodar
+
+Só precisa de Python 3, sem nenhuma biblioteca externa.
+
+```bash
+./compilar --tokens programa.mpl    # lista de tokens (Entrega 1)
+./compilar --ast    programa.mpl    # árvore sintática (Entrega 2)
+./compilar --tabela programa.mpl    # tabela de símbolos (Entrega 3)
+./compilar --ir     programa.mpl    # código de três endereços (Entrega 4)
+./compilar          programa.mpl    # gera programa.mplb
+./executar          programa.mplb   # roda o programa
+```
+
+Verificação:
+
+```bash
+make verificar E=1     # confere a Entrega 1
+make prova E=1         # confere num clone limpo, que é o que a correção faz
+make evidencias E=1    # grava evidencias/verificacao-1.txt
+```
+
+## Estado das entregas
+
+| Entrega | Arquivo | Situação |
+|---|---|---|
+| 1. Analisador léxico | `mplc/lexico.py` | pronta, 20 de 20 provas |
+| 2. Analisador sintático | `mplc/sintatico.py` | a fazer |
+| 3. Tabela de símbolos e tipos | `mplc/semantica.py` | a fazer |
+| 4. Intermediário, geração e VM | `mplc/intermediario.py`, `gerador.py`, `vm.py` | a fazer |
 
 ---
 
-## Comece por aqui
+# Entrega 1: tabela de tokens
 
-```bash
-git clone https://github.com/LuizRMSilva1973/compiladores-lab.git
-cd compiladores-lab
-```
+O analisador léxico é um scanner escrito à mão, que percorre o texto caractere a caractere.
+Não usa a biblioteca `re`. A posição fica toda concentrada na classe `_Leitor`, que é a única
+que move o cursor: ela incrementa a coluna a cada caractere e zera a coluna ao passar por um
+`\n`. Como só existe um lugar que anda no texto, a coluna sai certa em todo token sem nenhum
+ajuste espalhado pelo código.
 
-```bash
-make verificar E=1
-```
+A primeira coluna de cada linha é 1.
 
-Vai dar vermelho — é para dar. O esqueleto responde à linha de comando mas
-ainda não tem nenhuma fase escrita. O vermelho é o seu ponto de partida, e
-ele vai virando verde conforme vocês preenchem `mplc/`.
+## Descarte: espaços e comentários
 
-Não precisa instalar nada além do Python 3. Se o notebook de vocês der
-trabalho, o [Google Cloud Shell](https://shell.cloud.google.com) já vem com
-Python 3.12, Java 21 e git — e é o mesmo ambiente da correção.
+Estes não geram token. São consumidos antes de cada token pela função
+`_pular_espacos_e_comentarios`.
 
----
+| O que é | Reconhecido por | Observação |
+|---|---|---|
+| espaço em branco | `[ \t\r\n]+` | separa tokens |
+| comentário de linha | `//[^\n]*` | vai até o fim da linha |
+| comentário de bloco | `/\*` até o primeiro `*/` | não aninha, e pode atravessar linhas |
 
-## Os três documentos que mandam
+## Literais
 
-| Arquivo | O que decide |
+| Tipo do token | Expressão regular | Exemplos | Função |
+|---|---|---|---|
+| `INTEIRO` | `[0-9]+` | `0`, `42`, `1000` | `_ler_numero` |
+| `REAL` | `[0-9]+\.[0-9]+` | `3.14`, `0.5`, `10.0` | `_ler_numero` |
+| `LOGICO` | `verdadeiro\|falso` | `verdadeiro`, `falso` | `_ler_identificador`, via tabela `PALAVRAS` |
+| `TEXTO` | `"([^"\\\n]\|\\[ntr"\\])*"` | `"oi"`, `"a\nb"`, `""` | `_ler_texto` |
+
+O ponto do `REAL` exige dígito dos dois lados, então `3.` e `.5` são erro léxico.
+
+O lexema de um `TEXTO` sai cru, exatamente como apareceu no fonte: com as aspas e com os
+escapes na forma original. O fonte `"a\nb"` produz o lexema `"a\nb"`, com cinco caracteres
+entre aspas. A tradução do escape para o caractere de verdade é assunto da Entrega 4.
+
+Escapes aceitos dentro de um texto: `\n`, `\t`, `\"` e `\\`. Qualquer outro é erro léxico.
+
+## Identificador
+
+| Tipo do token | Expressão regular | Exemplos |
+|---|---|---|
+| `ID` | `[a-zA-Z_][a-zA-Z0-9_]*`, desde que não esteja em `PALAVRAS` | `x`, `soma`, `_tmp`, `sePossivel` |
+
+Só letras ASCII. Um identificador com acento é erro léxico, porque a especificação restringe
+o alfabeto a `a-z`, `A-Z` e `_`.
+
+O nome é lido inteiro primeiro e só depois consultado na tabela de palavras reservadas. É o
+que faz `sePossivel` ser um `ID`, e não um `se` seguido de `Possivel`.
+
+## Palavras reservadas
+
+Todas casam com a mesma expressão do identificador, `[a-zA-Z_][a-zA-Z0-9_]*`, e são separadas
+por consulta ao dicionário `PALAVRAS`.
+
+| Lexema | Tipo do token |
 |---|---|
-| [LINGUAGEM.md](LINGUAGEM.md) | **o que** o compilador aceita: a sintaxe e as regras de tipo da MPL |
-| [CONTRATOS.md](CONTRATOS.md) | **como** ele se comunica: a linha de comando e o formato de cada despejo |
-| [entregas/](entregas/) | o enunciado de cada entrega, com o que vale nota |
+| `funcao` | `FUNCAO` |
+| `retorne` | `RETORNE` |
+| `se` | `SE` |
+| `senao` | `SENAO` |
+| `enquanto` | `ENQUANTO` |
+| `escreva` | `ESCREVA` |
+| `inteiro` | `TIPO_INTEIRO` |
+| `real` | `TIPO_REAL` |
+| `logico` | `TIPO_LOGICO` |
+| `texto` | `TIPO_TEXTO` |
+| `vazio` | `TIPO_VAZIO` |
+| `verdadeiro` | `LOGICO` |
+| `falso` | `LOGICO` |
+| `e` | `E` |
+| `ou` | `OU` |
+| `nao` | `NAO` |
 
-Quando a sua intuição discordar de um deles, é o arquivo que vale. Se o
-arquivo estiver errado, me procurem — já aconteceu de eu escrever um exemplo
-errado no contrato e só descobrir rodando.
+`verdadeiro` e `falso` são palavras reservadas na hora de recusar o nome de uma variável, mas
+o token que sai delas é o literal `LOGICO`, porque é isso que elas são dentro de uma
+expressão.
 
----
+## Operadores e delimitadores
 
-## As entregas
+Reconhecidos por comparação direta de prefixo, na ordem da lista `OPERADORES`.
 
-| # | Entrega | Turma A (quarta) | Turma B (segunda) | Vale |
-|---|---|---|---|---|
-| [E1](entregas/E1.md) | Analisador léxico | 02/09 | 31/08 | 0,8 |
-| [E2](entregas/E2.md) | Analisador sintático e árvore | 30/09 | 28/09 | 1,2 |
-| [E3](entregas/E3.md) | Tabela de símbolos e tipos | 28/10 | 26/10 | 1,2 |
-| [E4](entregas/E4.md) | Código intermediário, geração e VM | 18/11 | 16/11 | 1,8 |
-| [Apres.](entregas/APRESENTACAO.md) | Demonstração e defesa | 25/11 | 23/11 | 1,0 |
+| Lexema | Tipo do token |
+|---|---|
+| `<=` | `MENOR_IGUAL` |
+| `>=` | `MAIOR_IGUAL` |
+| `==` | `IGUAL` |
+| `!=` | `DIFERENTE` |
+| `+` | `MAIS` |
+| `-` | `MENOS` |
+| `*` | `VEZES` |
+| `/` | `DIVIDE` |
+| `%` | `RESTO` |
+| `<` | `MENOR` |
+| `>` | `MAIOR` |
+| `=` | `ATRIBUI` |
+| `(` | `ABRE_PAR` |
+| `)` | `FECHA_PAR` |
+| `{` | `ABRE_CHAVE` |
+| `}` | `FECHA_CHAVE` |
+| `,` | `VIRGULA` |
+| `;` | `PONTO_VIRGULA` |
 
-São **quatro entregas sobre o mesmo compilador**, não quatro trabalhos. O que
-vocês escreverem na E1 continua rodando na E4 — e o verificador da E4 confere
-tudo o que veio antes. Deixar a E1 pela metade custa caro em novembro.
+**A ordem dessa lista é o ponto sensível da entrega.** Os símbolos de dois caracteres estão
+antes dos de um. Se `<` fosse testado primeiro, `x <= 3` viraria quatro tokens em vez de três,
+e o defeito só apareceria na Entrega 2, num lugar sem relação nenhuma com o léxico. A regra
+que evita isso se chama maximal munch: casar sempre o maior símbolo possível. Vale para os
+quatro pares em que um símbolo é prefixo do outro, `<=` e `<`, `>=` e `>`, `==` e `=`,
+`!=` e `!`.
 
----
+O caractere `!` sozinho não existe na MPL. A negação é a palavra `nao`. Então `!` fora de
+`!=` é erro léxico.
 
-## Regras do jogo
+## Fim de arquivo
 
-**A entrega é o repositório, nunca a máquina de vocês.** A correção clona o
-repositório numa máquina limpa e roda `make verificar E=n`. Se não passar
-lá, não conta como entregue. Testem antes de entregar — de preferência na
-Cloud Shell, que é o ambiente da correção.
+| Tipo do token | Lexema | Posição |
+|---|---|---|
+| `FIM_ARQUIVO` | vazio | onde o cursor parou depois de consumir os espaços finais |
 
-**Grupos de até 3.** O mesmo grupo do começo ao fim. Mudança de grupo só até
-a E1.
+Se o arquivo termina com quebra de linha, isso dá a linha seguinte à última, na coluna 1. Se
+não termina, dá logo depois do último caractere. As duas regras do contrato saem do mesmo
+código, sem caso especial.
 
-**Gerador de parser proibido nas Entregas 1 e 2.** ANTLR, PLY, yacc, lark e
-parentes escondem exatamente a parte que está sendo ensinada. Da E3 em diante
-o assunto é outro, e aí não faz diferença. Na apresentação vocês podem — e
-devem — comparar o parser de vocês com o que um gerador produziria.
+## Erros léxicos
 
-**A linguagem de implementação é de vocês, entre as que o ambiente da correção
-já tem:** Python 3.12, Java 21, C e C++ (gcc 13), Ruby 3.2 ou PHP 8.3. O
-verificador não olha para dentro — ele roda `./compilar` e `./executar` e
-compara o que sai. O esqueleto em `mplc/` é Python porque é o caminho mais
-curto, mas ninguém é obrigado a usá-lo.
+Todos saem como `ErroMPL('lexico', linha, coluna, mensagem)`, que o `mplc/principal.py`
+imprime em `stderr` no formato do contrato e devolve o código de saída 1.
 
-A lista existe por um motivo prático: a correção roda numa Cloud Shell limpa, e
-o que não estiver lá não roda. Querem outra linguagem? Falem comigo **antes** de
-começar — o critério é ela existir no ambiente sem instalação. Em nenhum caso
-dependam de biblioteca externa: só a biblioteca padrão.
+| Situação | Onde a posição é ancorada |
+|---|---|
+| escape inválido dentro de um texto | a barra invertida que abre o escape |
+| texto sem a aspa de fechamento na mesma linha | a aspa de abertura |
+| comentário de bloco aberto e nunca fechado | o `/*` que abriu o comentário |
+| ponto de real sem dígito depois, como `3.` | o ponto |
+| ponto sem dígito antes, como `.5` | o ponto, que não inicia token nenhum |
+| caractere fora da linguagem, como `@` ou `ç` | o próprio caractere |
 
-**Escrever o compilador é a tarefa.** Usar IA para explicar um conceito,
-revisar uma mensagem de erro ou entender um trecho é bem-vindo, e eu faço
-isso também. Entregar um compilador que vocês não sabem alterar é outra
-coisa — e a apresentação foi desenhada para separar os dois casos: cada grupo
-recebe **uma alteração pequena na linguagem, na hora, com 10 minutos para
-fazer**. Quem escreveu o compilador faz. Não é desconfiança; é o formato.
-
----
-
-## O verificador
-
-```bash
-make verificar E=2      # confere a Entrega 2 e, junto, a 1
-make verificar          # confere as quatro
-make evidencias E=2     # grava evidencias/verificacao-2.txt, que vai na entrega
-```
-
-**Antes de entregar, rodem `make prova`.** Ele clona o repositório de vocês num
-diretório limpo e verifica lá — que é exatamente o que a correção faz. É o
-teste que pega o defeito mais comum de todos, e que não tem nada a ver com
-compiladores: *funciona aqui e não no clone*. Arquivo esquecido fora do commit,
-caminho absoluto, passo de compilação que ninguém roda. Vale para qualquer
-linguagem, e é a única prova que realmente antecipa a correção.
-
-Ele não lê o código de vocês. Ele roda o compilador e compara a saída com um
-corpus de **10 programas válidos**, **26 programas que precisam ser
-recusados na compilação** e **3 que precisam falhar na execução** — com a
-fase e a linha do erro conferidas.
-
-Os programas recusados são metade da nota escondida do trabalho. Um
-compilador que aceita tudo passa em todos os testes positivos e não vale
-nada: é por isso que o corpus tem mais programas errados do que certos.
-
-**A correção usa um segundo corpus, que vocês não têm.** Mesma linguagem,
-mesmas regras, programas diferentes. Um compilador de verdade passa nos dois
-sem que vocês precisem fazer nada; um programa que apenas reproduza as saídas
-esperadas deste corpus passa aqui e reprova lá. Estou dizendo isto abertamente
-para ninguém perder tempo pelo caminho errado.
-
----
-
-## Como entregar
-
-1. `git push` no repositório do grupo.
-2. Abram a [página do trabalho](https://profluiz.mantovanitec.com/disciplinas/aulas/compiladores/trabalho.html).
-3. No formulário do fim da página: escolham a entrega, identifiquem os
-   integrantes (nome, RA e e-mail), colem a URL do repositório e anexem o
-   `evidencias/verificacao-N.txt`.
-4. Cada integrante recebe uma cópia por e-mail. **Guardem esse e-mail**: é o
-   comprovante.
+A ideia por trás dessas escolhas é sempre a mesma: apontar o caractere que estragou o token,
+não o começo do token nem o fim do anterior. É o que o contrato pede na seção 7.
