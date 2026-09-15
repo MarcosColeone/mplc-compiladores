@@ -45,7 +45,7 @@ make evidencias E=1    # grava evidencias/verificacao-1.txt
 | Entrega | Arquivo | Situação |
 |---|---|---|
 | 1. Analisador léxico | `mplc/lexico.py` | pronta, 20 de 20 provas |
-| 2. Analisador sintático | `mplc/sintatico.py` | a fazer |
+| 2. Analisador sintático | `mplc/sintatico.py` | pronta, 36 de 36 provas |
 | 3. Tabela de símbolos e tipos | `mplc/semantica.py` | a fazer |
 | 4. Intermediário, geração e VM | `mplc/intermediario.py`, `gerador.py`, `vm.py` | a fazer |
 
@@ -190,3 +190,135 @@ imprime em `stderr` no formato do contrato e devolve o código de saída 1.
 
 A ideia por trás dessas escolhas é sempre a mesma: apontar o caractere que estragou o token,
 não o começo do token nem o fim do anterior. É o que o contrato pede na seção 7.
+
+---
+
+# Entrega 2: a gramática implementada
+
+O parser é uma **descida recursiva escrita à mão**, sem gerador. Cada regra da gramática
+abaixo é uma função de `mplc/sintatico.py` com o mesmo nome, e cada nível de precedência é
+uma função separada.
+
+Notação EBNF: `{ x }` quer dizer zero ou mais repetições de `x`, `[ x ]` quer dizer que `x`
+é opcional, e o que está entre aspas é o lexema literal. Os nomes em maiúsculas são tipos de
+token que vêm do analisador léxico.
+
+## Estrutura do programa
+
+```ebnf
+programa          ::= { funcao } FIM_ARQUIVO
+
+funcao            ::= "funcao" tipo ID parametros bloco
+tipo              ::= "inteiro" | "real" | "logico" | "texto" | "vazio"
+parametros        ::= "(" [ parametro { "," parametro } ] ")"
+parametro         ::= tipo ID
+```
+
+O tipo de retorno vem antes do nome. Não existe código fora de função.
+
+## Comandos
+
+```ebnf
+bloco             ::= "{" { comando } "}"
+
+comando           ::= declaracao
+                    | atribuicao
+                    | comando_se
+                    | comando_enquanto
+                    | comando_escreva
+                    | comando_retorne
+                    | chamada_comando
+                    | bloco
+
+declaracao        ::= tipo ID [ "=" expressao ] ";"
+atribuicao        ::= ID "=" expressao ";"
+comando_se        ::= "se" "(" expressao ")" bloco [ "senao" bloco ]
+comando_enquanto  ::= "enquanto" "(" expressao ")" bloco
+comando_escreva   ::= "escreva" "(" expressao ")" ";"
+comando_retorne   ::= "retorne" [ expressao ] ";"
+chamada_comando   ::= chamada ";"
+```
+
+As chaves do `se` e do `enquanto` são obrigatórias, mesmo para um comando só, porque `bloco`
+aparece diretamente na regra e `bloco` sempre começa com `{`.
+
+Um `bloco` solto também é um comando, e é o que permite abrir um escopo novo no meio do
+código.
+
+Duas regras começam com `ID`, a atribuição e a chamada usada como comando. O parser desempata
+espiando o token seguinte, sem consumir: `=` leva para a atribuição, `(` leva para a chamada.
+
+## Expressões, um nível por regra
+
+```ebnf
+expressao         ::= nivel_ou
+
+nivel_ou          ::= nivel_e          { "ou" nivel_e }
+nivel_e           ::= nivel_igualdade  { "e"  nivel_igualdade }
+nivel_igualdade   ::= nivel_comparacao { ( "==" | "!=" ) nivel_comparacao }
+nivel_comparacao  ::= nivel_soma       { ( "<" | "<=" | ">" | ">=" ) nivel_soma }
+nivel_soma        ::= nivel_termo      { ( "+" | "-" ) nivel_termo }
+nivel_termo       ::= nivel_unario     { ( "*" | "/" | "%" ) nivel_unario }
+nivel_unario      ::= ( "nao" | "-" ) nivel_unario
+                    | nivel_primario
+nivel_primario    ::= INTEIRO | REAL | LOGICO | TEXTO
+                    | chamada
+                    | ID
+                    | "(" expressao ")"
+
+chamada           ::= ID "(" [ expressao { "," expressao } ] ")"
+```
+
+## Como a precedência está codificada nesta gramática
+
+**A precedência é a ordem em que uma regra chama a outra.** Ela não está declarada em lugar
+nenhum: `nivel_ou` só sabe produzir `nivel_e`, que só sabe produzir `nivel_igualdade`, e assim
+por diante até `nivel_primario`. Quem é chamado por último fica mais fundo na árvore, e por
+isso liga mais forte.
+
+Em `1 + 2 * 3` a função `nivel_soma` monta o `+` e chama `nivel_termo` para cada lado. O `*`
+nasce lá embaixo, dentro do lado direito, então o `+` fica na raiz e a multiplicação acontece
+primeiro. Se as duas regras trocassem de lugar, a árvore sairia invertida, e é isso que o
+`--ast` mostra mesmo sem o compilador calcular nada.
+
+## Como a associatividade está codificada
+
+Os seis níveis binários usam **repetição**, o `{ }` da EBNF, que no código é um laço `while`.
+O laço monta o nó e usa o resultado como lado esquerdo da próxima volta, então a árvore cresce
+para a esquerda:
+
+```
+10 - 4 - 3   vira   ((10 - 4) - 3)
+
+        -
+       / \
+      -   3
+     / \
+   10   4
+```
+
+Se essas regras fossem escritas com recursão à direita, do tipo
+`nivel_soma ::= nivel_termo "-" nivel_soma`, o mesmo programa produziria `10 - (4 - 3)`, que
+vale 9 em vez de 3. O defeito passa despercebido em qualquer teste com dois operandos e só
+aparece com três.
+
+A regra `nivel_unario` é a única que se chama de volta, e isso é proposital: `nao` e o `-`
+unário associam à direita, então `- - 2` precisa virar `-(-2)`.
+
+## Erros sintáticos
+
+Existe uma única função que interrompe o parser, a `esperar`, e ela sempre reporta a posição
+do **token atual**, ou seja, o que apareceu no lugar do esperado. Nunca o fim do token
+anterior.
+
+| Situação | Onde o erro sai |
+|---|---|
+| falta o `;` no fim de um comando | no primeiro token da linha seguinte |
+| falta o `}` que fecha a função | no `FIM_ARQUIVO` |
+| `se` sem parênteses na condição | no token que apareceu no lugar do `(` |
+| operando faltando, como em `1 + )` | no `)` |
+| `se` sem as chaves obrigatórias | no comando que apareceu no lugar do `{` |
+| função sem tipo de retorno | no nome da função, que apareceu onde deveria haver um tipo |
+
+É a mesma ideia da Entrega 1, adaptada: apontar o símbolo que quebrou a expectativa, no
+momento em que o parser percebeu.
