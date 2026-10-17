@@ -46,7 +46,7 @@ make evidencias E=1    # grava evidencias/verificacao-1.txt
 |---|---|---|
 | 1. Analisador léxico | `mplc/lexico.py` | pronta, 20 de 20 provas |
 | 2. Analisador sintático | `mplc/sintatico.py` | pronta, 36 de 36 provas |
-| 3. Tabela de símbolos e tipos | `mplc/semantica.py` | a fazer |
+| 3. Tabela de símbolos e tipos | `mplc/semantica.py` | pronta, 70 de 70 provas |
 | 4. Intermediário, geração e VM | `mplc/intermediario.py`, `gerador.py`, `vm.py` | a fazer |
 
 ---
@@ -322,3 +322,102 @@ anterior.
 
 É a mesma ideia da Entrega 1, adaptada: apontar o símbolo que quebrou a expectativa, no
 momento em que o parser percebeu.
+
+---
+
+# Entrega 3: a estrutura de escopos
+
+## Como representamos os escopos, e por quê
+
+Os escopos formam uma **árvore**, guardada numa lista pela ordem em que cada um abriu. Cada
+escopo tem um dicionário dos nomes declarados nele e um ponteiro para o escopo pai, e a busca
+de um nome sobe por essa corrente até o global.
+
+Escolhemos árvore com ponteiro para o pai, e não uma pilha, por duas razões. A primeira é que
+o sombreamento sai de graça: a busca para no primeiro escopo que conhece o nome, então a
+variável de dentro esconde a de fora sem ninguém precisar apagar nada ao fechar o bloco. A
+segunda é que uma pilha perde a informação quando desempilha, e nós precisamos que todos os
+escopos continuem existindo depois da análise, porque o `--tabela` imprime todos eles e a
+Entrega 4 vai percorrer cada um de novo para transformar nome em posição de memória.
+
+Por isso cada `Simbolo` já nasce com um campo `posicao` vazio, reservado para a geração de
+código preencher.
+
+## Quantos escopos cada construção abre
+
+| Construção | Escopos que abre |
+|---|---|
+| programa | 1, o global, que contém só funções |
+| função | 2, o dos parâmetros e o do bloco do corpo |
+| `se` sem `senao` | 1, o bloco do então |
+| `se` com `senao` | 2, um bloco para cada lado |
+| `enquanto` | 1, o bloco |
+| bloco solto `{ }` | 1 |
+
+Os escopos são numerados na ordem em que abrem, percorrendo o programa de cima para baixo e
+entrando nos blocos. Um escopo vazio aparece mesmo assim, com o cabeçalho e nenhuma linha
+abaixo.
+
+## Duas passadas
+
+A análise percorre a árvore duas vezes.
+
+A primeira passada só coleta as **assinaturas** das funções e as coloca no escopo global. Ela
+não olha nenhum corpo. É o que permite uma função chamar outra declarada mais abaixo no
+arquivo, incluindo recursão mútua: sem essa passada, uma função `par` não conseguiria chamar
+`impar` se `impar` viesse depois dela.
+
+A segunda passada entra nos corpos, cria os escopos, declara variáveis e confere os tipos.
+Quando ela encontra uma chamada, a assinatura já está na tabela, não importa a ordem do
+arquivo.
+
+## Regras de tipo
+
+Existe **uma única conversão implícita**: `inteiro` vira `real` quando o contexto pede `real`.
+Vale na atribuição, no argumento de chamada, no retorno e nos dois lados de um operador
+aritmético ou relacional. Nenhuma outra existe, então `real` não vira `inteiro`, `logico` não
+vira número e número não vira `texto`.
+
+Três operadores merecem nota:
+
+O `+` é o único com dois sentidos. Entre dois textos ele junta, entre dois números ele soma, e
+misturar os dois é erro de tipo, nunca concatenação.
+
+O `%` é o único que não aceita `real`, nem de um lado só.
+
+O `==` e o `!=` comparam tipos iguais, e também `inteiro` com `real` por causa da conversão.
+Já `<`, `<=`, `>` e `>=` só comparam números.
+
+## Garantia de retorno
+
+A verificação é **estrutural**. O compilador olha a forma do programa e nunca avalia o valor
+de uma condição.
+
+| Construção | Garante retorno? |
+|---|---|
+| `retorne` com valor | sim |
+| bloco | sim, se algum comando dele garantir |
+| `se` sem `senao` | **não**, sempre |
+| `se` com `senao` | sim, se os **dois** lados garantirem |
+| `enquanto` | **não**, porque pode rodar zero vezes |
+
+Um `se` sem `senao` nunca garante, por mais óbvia que a condição pareça para quem escreveu,
+porque existe o caminho em que ela é falsa. Um `enquanto` também não, porque o corpo pode
+nunca executar.
+
+## Onde cada erro é apontado
+
+O verificador confere fase e linha nesta fase, e não a coluna, porque a posição de um erro
+semântico nem sempre é única. Ainda assim cada erro aponta o nó da árvore que o causou.
+
+| Erro | Nó apontado |
+|---|---|
+| nome não declarado | o uso do nome |
+| redeclaração no mesmo escopo | a segunda declaração |
+| tipo incompatível na atribuição | a declaração ou a atribuição |
+| condição que não é lógico | a expressão da condição |
+| operador com tipos errados | o operador |
+| chamada com aridade ou tipo errado | a chamada, ou o argumento culpado |
+| função `vazio` dentro de expressão | a chamada |
+| caminho sem `retorne` | a declaração da função |
+| falta de `principal` | linha 1, porque não existe nó para apontar |
