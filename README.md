@@ -8,14 +8,14 @@ Esqueleto de origem: [compiladores-lab](https://github.com/LuizRMSilva1973/compi
 
 ## Grupo
 
-| Nome | RA | E-mail |
-|---|---|---|
-| Marcos Coleone de Arruda | 23110557 | marcos.23110557@alunos.unisagrado.edu.br |
-| Maria Fernanda Carreon | 23110626 | maria.23110626@alunos.unisagrado.edu.br |
-| Aline Herrera | 23111220 | aline.23111220@alunos.unisagrado.edu.br |
-| Laryssa Patez da Silva | 23110710 | laryssa.23110710@alunos.unisagrado.edu.br |
-| Gabriel Rocha Guimarães | 23110134 | gabriel.23110134@alunos.unisagrado.edu.br |
-| Jean Beltrame | 23111307 | jean.23111307@alunos.unisagrado.edu.br |
+| Nome | RA | E-mail | Papel |
+|---|---|---|---|
+| Marcos Coleone de Arruda | 23110557 | marcos.23110557@alunos.unisagrado.edu.br | Léxico e sintaxe |
+| Aline Herrera | 23111220 | aline.23111220@alunos.unisagrado.edu.br | Léxico e sintaxe |
+| Maria Fernanda Carreon | 23110626 | maria.23110626@alunos.unisagrado.edu.br | Semântica |
+| Gabriel Rocha Guimarães | 23110134 | gabriel.23110134@alunos.unisagrado.edu.br | Geração e VM |
+| Laryssa Patez da Silva | 23110710 | laryssa.23110710@alunos.unisagrado.edu.br | Geração e VM |
+| Jean Beltrame | 23111307 | jean.23111307@alunos.unisagrado.edu.br | Geração e VM |
 
 Turma B (segunda-feira).
 
