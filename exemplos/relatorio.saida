@@ -1,0 +1,60 @@
+RELATORIO DE NUMEROS
+**********************
+
+piramide
+**********************
+*
+**
+***
+****
+*****
+******
+
+fatoriais de 1 a 8
+**********************
+1
+2
+6
+24
+120
+720
+5040
+40320
+
+primos ate 30
+**********************
+2
+3
+5
+7
+11
+13
+17
+19
+23
+29
+
+par? de 0 a 5
+**********************
+verdadeiro
+falso
+verdadeiro
+falso
+verdadeiro
+falso
+
+as duas divisoes
+**********************
+3.000000
+3.500000
+
+o resto segue o dividendo
+**********************
+-1
+1
+
+texto com escapes
+**********************
+tabulado:	assim
+aspas: "citado"
+barra: \

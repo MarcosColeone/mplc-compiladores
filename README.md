@@ -47,7 +47,7 @@ make evidencias E=1    # grava evidencias/verificacao-1.txt
 | 1. Analisador léxico | `mplc/lexico.py` | pronta, 20 de 20 provas |
 | 2. Analisador sintático | `mplc/sintatico.py` | pronta, 36 de 36 provas |
 | 3. Tabela de símbolos e tipos | `mplc/semantica.py` | pronta, 70 de 70 provas |
-| 4. Intermediário, geração e VM | `mplc/intermediario.py`, `gerador.py`, `vm.py` | a fazer |
+| 4. Intermediário, geração e VM | `mplc/intermediario.py`, `gerador.py`, `vm.py` | pronta, 93 de 93 provas |
 
 ---
 
@@ -421,3 +421,170 @@ semântico nem sempre é única. Ainda assim cada erro aponta o nó da árvore q
 | função `vazio` dentro de expressão | a chamada |
 | caminho sem `retorne` | a declaração da função |
 | falta de `principal` | linha 1, porque não existe nó para apontar |
+
+---
+
+# Entrega 4: o código intermediário, o `.mplb` e a VM
+
+## As três peças
+
+O código de três endereços é montado em `mplc/intermediario.py`, traduzido para o `.mplb` em
+`mplc/gerador.py` e executado em `mplc/vm.py`.
+
+```bash
+./compilar --ir exemplos/relatorio.mpl     # o código de três endereços
+./compilar     exemplos/relatorio.mpl      # gera exemplos/relatorio.mplb
+./executar     exemplos/relatorio.mplb     # roda
+```
+
+## O código de três endereços
+
+A regra é uma só: **cada linha de operação tem no máximo um operador**. Toda expressão
+composta é quebrada em linhas simples, com temporários guardando os resultados parciais.
+
+Para `funcao inteiro fatorial(inteiro n)` o compilador produz:
+
+```
+funcao fatorial inteiro (n inteiro)
+  t0 = n <= 1
+  seFalso t0 desvie L0
+  retorne 1
+  desvie L1
+L0:
+  t1 = n - 1
+  t2 = chama fatorial t1
+  t3 = n * t2
+  retorne t3
+L1:
+fim
+```
+
+Duas decisões aparecem aí.
+
+**Conversão para real.** A regra 3.1 da linguagem diz que `inteiro` vira `real` quando o
+contexto exige. Em vez de recalcular o tipo de cada expressão, o gerador emite `paraReal`
+sempre que o **destino** é real, na atribuição, no argumento e no retorno. Converter um real
+em real não muda nada, então a regra fica simples e não erra. O caso dos dois lados de um
+operador a VM resolve sozinha, porque inteiro somado a real já dá real.
+
+**Sombreamento.** Três variáveis chamadas `x` em blocos aninhados viveriam no mesmo registro
+de ativação e se atropelariam. Por isso cada declaração ganha um nome interno único dentro da
+função: o `x` de dentro vira `x.2`, e quem lê o `--ir` enxerga qual é qual.
+
+## O formato do `.mplb`
+
+Texto legível, uma instrução por linha, como o contrato exige. É uma **máquina de pilha**:
+empilha os operandos, aplica a operação, guarda o resultado. A ordem em que as instruções
+aparecem é exatamente a ordem em que acontecem.
+
+```
+# bytecode MPL, formato texto, uma instrucao por linha
+
+funcao fatorial inteiro
+parametros n
+corpo
+  linha 2
+  carrega n
+  const inteiro 1
+  menorIgual
+  guarda t0
+  carrega t0
+  seFalso L0
+  ...
+fim
+```
+
+## O conjunto de instruções da VM
+
+Cada linha diz o que a instrução faz com a pilha de operandos.
+
+### Valores e locais
+
+| Instrução | O que faz com a pilha |
+|---|---|
+| `const <tipo> <valor>` | empilha um literal, já convertido para o tipo |
+| `carrega <nome>` | empilha o valor do local `<nome>` do quadro atual |
+| `guarda <nome>` | desempilha um valor e guarda no local `<nome>` |
+| `descarta` | desempilha um valor e joga fora |
+| `paraReal` | desempilha, converte para real e empilha de volta |
+
+### Aritmética
+
+Todas desempilham dois valores, com o da direita no topo, e empilham um resultado.
+
+| Instrução | O que faz |
+|---|---|
+| `soma` | soma números, ou junta dois textos |
+| `subtrai` | subtrai |
+| `multiplica` | multiplica |
+| `divide` | divide, inteira e truncada para zero se os dois forem inteiros |
+| `resto` | resto com o sinal do dividendo |
+
+### Comparação e lógica
+
+| Instrução | O que faz |
+|---|---|
+| `igual`, `diferente` | desempilham dois valores, empilham um lógico |
+| `menor`, `menorIgual`, `maior`, `maiorIgual` | desempilham dois números, empilham um lógico |
+| `conjuncao`, `disjuncao` | desempilham dois lógicos, empilham um lógico |
+| `negativo` | desempilha um número e empilha o oposto |
+| `negacao` | desempilha um lógico e empilha o inverso |
+
+### Controle
+
+| Instrução | O que faz |
+|---|---|
+| `<nome>:` | rótulo, não ocupa posição e não mexe na pilha |
+| `desvia <rótulo>` | salta sem condição |
+| `seFalso <rótulo>` | desempilha um lógico e salta se ele for falso |
+| `chama <nome> <n>` | desempilha `n` argumentos, abre um quadro novo e empilha o retorno |
+| `retorna` | desempilha o valor e devolve ao chamador |
+| `retornaVazio` | devolve sem valor |
+
+### Apoio
+
+| Instrução | O que faz |
+|---|---|
+| `linha <n>` | marca a linha do programa original, para o erro de execução saber onde está |
+| `escreve` | desempilha um valor e imprime, na forma da seção 4.5 da especificação |
+
+## O registro de ativação
+
+Cada chamada abre um **quadro** próprio, com os seus locais, a sua pilha de operandos e o seu
+ponteiro de instrução. É o que faz a recursão funcionar: cada `fatorial` em andamento tem o
+seu próprio `n`.
+
+Se os locais pertencessem à máquina em vez de pertencerem ao quadro, `fatorial(5)` devolveria
+lixo, e o pior é que `fatorial(1)` continuaria funcionando, porque só existe uma chamada.
+
+O estouro de pilha é detectado em 900 quadros abertos. O limite de recursão do próprio Python
+é levantado junto, para que o nosso limite estoure primeiro: assim quem relata o erro é a VM,
+que sabe em que linha do programa estava, e não o interpretador.
+
+## As três armadilhas
+
+**A divisão inteira.** `7 / 2` é `3`, e `real x = 7 / 2;` é `3.000000`, porque a divisão
+acontece antes da conversão. O `//` do Python arredonda para baixo, então `-7 / 2` daria `-4`.
+A VM trunca em direção a zero e devolve `-3`.
+
+**O sinal do resto.** `-7 % 3` é `-1`, não `2`. O resto tem o sinal do dividendo. O `%` do
+Python segue o sinal do divisor, então a conta é feita com os valores absolutos e o sinal é
+reposto no fim.
+
+**O registro de ativação.** Resolvido pelo quadro por chamada, descrito acima.
+
+## O programa do grupo
+
+`exemplos/relatorio.mpl`, com a saída em `exemplos/relatorio.saida`.
+
+Ele usa de propósito tudo o que a linguagem tem: recursão direta em `fatorial` e `estrelas`,
+recursão mútua em `ehPar` e `ehImpar`, laço em `primo`, os quatro tipos, concatenação de
+texto, as duas formas de divisão e os escapes.
+
+A função `ehImpar` aparece no arquivo **depois** de já ter sido usada por `ehPar`. Isso só
+compila porque a análise semântica coleta todas as assinaturas numa passada separada, antes
+de olhar qualquer corpo.
+
+```bash
+./compilar exemplos/relatorio.mpl && ./executar exemplos/relatorio.mplb
+```
